@@ -4,35 +4,28 @@ from tkinter import filedialog
 from pptx import Presentation
 from pptx.util import Pt
 
-def set_character_spacing(run, spacing):
-    """通过修改 XML 设置字符间距。"""
-    rPr = run._r.get_or_add_rPr()
-    if spacing != 0:
-        rPr.set('kern', str(int(spacing * 100)))  # 设置字符间距，单位是 1/100 磅
-    else:
-        if 'kern' in rPr.attrib:
-            del rPr.attrib['kern']  # 移除字符间距设置
-
-def adjust_text_format(presentation, font_scale, line_spacing, character_spacing, apply_spacing):
+def adjust_text_format(presentation, font_scale, line_spacing, apply_spacing):
     """
-    调整文本格式，包括字符间距、字体缩放和行距。
+    调整文本格式，包括字体缩放和行距。
     遍历幻灯片的所有元素，包括表格、母版、文本框和组合。
     """
     def adjust_shape_text(shape):
         """调整形状中的文字，包括普通文本框和表格内文字。"""
         if shape.has_text_frame:
             for paragraph in shape.text_frame.paragraphs:
+                # Add a space to empty lines
+                if not paragraph.text.strip():
+                    paragraph.text = " "
+                
                 for run in paragraph.runs:
                     # 调整字体大小
                     if run.font.size is not None:
                         run.font.size = Pt(run.font.size.pt * font_scale)
-                    # 设置字符间距
-                    if apply_spacing:
-                        set_character_spacing(run, character_spacing)
-                # 设置段落行距
-                paragraph.space_after = 0
-                paragraph.space_before = 0
-                paragraph.line_spacing = line_spacing
+                # 设置段落行距，包括空白行
+                if apply_spacing:
+                    paragraph.space_after = 0
+                    paragraph.space_before = 0
+                    paragraph.line_spacing = line_spacing
 
         # 如果形状是表格，遍历单元格
         if shape.has_table:
@@ -40,17 +33,19 @@ def adjust_text_format(presentation, font_scale, line_spacing, character_spacing
                 for cell in row.cells:
                     if cell.text_frame:  # 确保单元格具有 text_frame
                         for paragraph in cell.text_frame.paragraphs:
+                            # Add a space to empty lines
+                            if not paragraph.text.strip():
+                                paragraph.text = " "
+                            
                             for run in paragraph.runs:
                                 # 调整字体大小
                                 if run.font.size is not None:
                                     run.font.size = Pt(run.font.size.pt * font_scale)
-                                # 设置字符间距
-                                if apply_spacing:
-                                    set_character_spacing(run, character_spacing)
-                            # 设置段落行距
-                            paragraph.space_after = 0
-                            paragraph.space_before = 0
-                            paragraph.line_spacing = line_spacing
+                            # 设置段落行距，包括空白行
+                            if apply_spacing:
+                                paragraph.space_after = 0
+                                paragraph.space_before = 0
+                                paragraph.line_spacing = line_spacing
 
         # 如果形状是组合，递归处理组合中的每个形状
         if shape.shape_type == 6:  # 6 表示组合
@@ -70,11 +65,11 @@ def adjust_text_format(presentation, font_scale, line_spacing, character_spacing
 
     return presentation
 
-def process_ppt(input_path, output_folder, result_text, font_scale, line_spacing, character_spacing, apply_spacing):
+def process_ppt(input_path, output_folder, result_text, font_scale, line_spacing, apply_spacing):
     """处理单个 PPT 文件。"""
     try:
         presentation = Presentation(input_path)
-        adjusted_presentation = adjust_text_format(presentation, font_scale, line_spacing, character_spacing, apply_spacing)
+        adjusted_presentation = adjust_text_format(presentation, font_scale, line_spacing, apply_spacing)
 
         if not os.path.exists(output_folder):
             os.makedirs(output_folder)
@@ -111,7 +106,6 @@ def process():
 
     font_scale = float(entry_font_scale.get())
     line_spacing = float(entry_line_spacing.get())
-    character_spacing = float(entry_character_spacing.get())
     apply_spacing = apply_spacing_var.get()
 
     if folder_path:
@@ -119,10 +113,10 @@ def process():
         for filename in os.listdir(folder_path):
             if filename.endswith(".pptx"):
                 input_path = os.path.join(folder_path, filename)
-                process_ppt(input_path, output_folder, result_text, font_scale, line_spacing, character_spacing, apply_spacing)
+                process_ppt(input_path, output_folder, result_text, font_scale, line_spacing, apply_spacing)
     elif file_path:
         output_folder = os.path.join(os.path.dirname(file_path), "output")
-        process_ppt(file_path, output_folder, result_text, font_scale, line_spacing, character_spacing, apply_spacing)
+        process_ppt(file_path, output_folder, result_text, font_scale, line_spacing, apply_spacing)
 
     result_text.config(state=tk.DISABLED)
 
@@ -133,30 +127,26 @@ root.title("PPT 译后预处理工具")
 # 创建 UI 组件
 label_folder = tk.Label(root, text="选择文件夹:")
 entry_folder = tk.Entry(root, width=50)
-btn_browse_folder = tk.Button(root, text="选择文件夹", command=lambda: browse_folder(entry_folder))
+btn_browse_folder = tk.Button(root, text="选择文件夹", bg="#2cc2d9", fg="#FFFFFF", command=lambda: browse_folder(entry_folder))
 
-label_file = tk.Label(root, text="选择文件:")
+label_file = tk.Label(root, text="选择单文件:")
 entry_file = tk.Entry(root, width=50)
-btn_browse_file = tk.Button(root, text="选择文件", command=lambda: browse_file(entry_file))
+btn_browse_file = tk.Button(root, text="选择单文件", bg="#00da6a", fg="#FFFFFF", command=lambda: browse_file(entry_file))
 
 label_font_scale = tk.Label(root, text="字体缩放比例:")
 entry_font_scale = tk.Entry(root, width=10)
 entry_font_scale.insert(0, "0.6")
 
-label_line_spacing = tk.Label(root, text="行距:")
+label_line_spacing = tk.Label(root, text="行距设置:")
 entry_line_spacing = tk.Entry(root, width=10)
 entry_line_spacing.insert(0, "1.0")
 
-label_character_spacing = tk.Label(root, text="字符间距（磅）:")
-entry_character_spacing = tk.Entry(root, width=10)
-entry_character_spacing.insert(0, "0.0")
-
 apply_spacing_var = tk.BooleanVar()
-chk_apply_spacing = tk.Checkbutton(root, text="统一字符间距", variable=apply_spacing_var)
+chk_apply_spacing = tk.Checkbutton(root, text="修改行距", fg="#f01363", variable=apply_spacing_var)
 
-btn_process = tk.Button(root, text="处理", command=process)
+btn_process = tk.Button(root, text="处理", bg="#b80001", fg="#FFFFFF", command=process)
 
-result_text = tk.Text(root, wrap=tk.WORD, height=15, width=60, state=tk.DISABLED)
+result_text = tk.Text(root, wrap=tk.WORD, height=20, width=50, state=tk.DISABLED, bg="white")
 
 # 布局
 label_folder.grid(row=0, column=0, pady=5, sticky="w")
@@ -172,9 +162,6 @@ entry_font_scale.grid(row=2, column=1, pady=5, sticky="w")
 
 label_line_spacing.grid(row=3, column=0, pady=5, sticky="w")
 entry_line_spacing.grid(row=3, column=1, pady=5, sticky="w")
-
-label_character_spacing.grid(row=4, column=0, pady=5, sticky="w")
-entry_character_spacing.grid(row=4, column=1, pady=5, sticky="w")
 
 chk_apply_spacing.grid(row=5, column=0, pady=5, sticky="w")
 
