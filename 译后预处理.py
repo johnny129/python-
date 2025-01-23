@@ -3,19 +3,17 @@ import tkinter as tk
 from tkinter import filedialog
 from pptx import Presentation
 from pptx.util import Pt
+import re
 
-def set_character_spacing(run, spacing):
-    """通过修改 XML 设置字符间距。"""
-    rPr = run._r.get_or_add_rPr()
-    if spacing != 0:
-        rPr.set('kern', str(int(spacing * 100)))  # 设置字符间距，单位是 1/100 磅
-    else:
-        if 'kern' in rPr.attrib:
-            del rPr.attrib['kern']  # 移除字符间距设置
+def replace_spacing_in_text(text):
+    """Replace line breaks and spacing in text using the 统一间距 method."""
+    text = re.sub("<a:br>.+?</a:br>", "</a:p><a:p>", text)
+    text = re.sub('spc="-?[\\d]+"', " ", text)
+    return text
 
 def adjust_text_format(presentation, font_scale, line_spacing, apply_spacing):
     """
-    调整文本格式，包括字符间距、字体缩放和行距。
+    调整文本格式，包括统一间距、字体缩放和行距。
     遍历幻灯片的所有元素，包括表格、母版、文本框和组合。
     """
     def adjust_shape_text(shape):
@@ -26,9 +24,9 @@ def adjust_text_format(presentation, font_scale, line_spacing, apply_spacing):
                     # 调整字体大小
                     if run.font.size is not None:
                         run.font.size = Pt(run.font.size.pt * font_scale)
-                    # 设置字符间距
+                    # 统一字符间距
                     if apply_spacing:
-                        set_character_spacing(run, 12)  # 统一字符间距设置为12磅
+                        run.text = replace_spacing_in_text(run.text)
                 # 设置段落行距
                 paragraph.space_after = 0
                 paragraph.space_before = 0
@@ -44,9 +42,9 @@ def adjust_text_format(presentation, font_scale, line_spacing, apply_spacing):
                                 # 调整字体大小
                                 if run.font.size is not None:
                                     run.font.size = Pt(run.font.size.pt * font_scale)
-                                # 设置字符间距
+                                # 统一字符间距
                                 if apply_spacing:
-                                    set_character_spacing(run, 12)  # 统一字符间距设置为12磅
+                                    run.text = replace_spacing_in_text(run.text)
                             # 设置段落行距
                             paragraph.space_after = 0
                             paragraph.space_before = 0
@@ -147,7 +145,7 @@ entry_line_spacing = tk.Entry(root, width=10)
 entry_line_spacing.insert(0, "1.0")
 
 apply_spacing_var = tk.BooleanVar()
-chk_apply_spacing = tk.Checkbutton(root, text="应用统一字符间距", variable=apply_spacing_var)
+chk_apply_spacing = tk.Checkbutton(root, text="统一字符间距", variable=apply_spacing_var)
 
 btn_process = tk.Button(root, text="处理", command=process)
 
