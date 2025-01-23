@@ -29,7 +29,7 @@ def adjust_text_format(presentation, font_scale, line_spacing, apply_spacing):
                         if run.font.size is None:
                             run.font.size = Pt(10 * font_scale)  # 假设默认字体大小为10
                         else:
-                            run.font.size = Pt(run.font.size.pt * font_scale)
+                            run.font.size = Pt(run.font.size.pt * font_scales)
                 
                 for run in paragraph.runs:
                     # 根据提供的缩放比例调整字体大小
