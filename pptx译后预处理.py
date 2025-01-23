@@ -23,11 +23,11 @@ def adjust_text_format(presentation, font_scale, line_spacing, apply_spacing):
             for paragraph in shape.text_frame.paragraphs:
                 # 为空行添加空格以避免空段落问题
                 if not paragraph.text.strip():
-                    paragraph.text = "###"
+                    paragraph.text = " "
                     # 设置新添加空格的字体大小
                     for run in paragraph.runs:
                         if run.font.size is None:
-                            run.font.size = Pt(4 * font_scale)  # 假设默认字体大小为10
+                            run.font.size = Pt(10 * font_scale)  # 假设默认字体大小为10
                         else:
                             run.font.size = Pt(run.font.size.pt * font_scale)
                 
