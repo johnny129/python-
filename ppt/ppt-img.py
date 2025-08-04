@@ -1,186 +1,232 @@
 import os
-import json
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinterdnd2 import TkinterDnD, DND_FILES
-import winreg as reg
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
-import tempfile
+import zipfile
+from PyPDF2 import PdfReader
 
-# 配置文件路径
-CONFIG_FILE = 'config.json'
 
-def load_config():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, 'r') as f:
-            config = json.load(f)
-            return config
-    return {}
+def select_file():
+    """选择单个文件"""
+    file_path = filedialog.askopenfilename(filetypes=[("Office and PDF files", "*.pptx *.docx *.xlsx *.pdf")])
+    if file_path:
+        file_folder_entry.delete(0, tk.END)
+        file_folder_entry.insert(0, file_path)
 
-def save_config(config):
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(config, f)
 
-# 检查注册表中是否存在右键菜单项
-def check_context_menu_exists():
-    try:
-        with reg.OpenKey(reg.HKEY_CLASSES_ROOT, r'SystemFileAssociations\.pptx\shell\ExtractImages', 0, reg.KEY_READ) as key:
-            return True
-    except FileNotFoundError:
-        return False
+def select_folder():
+    """选择文件夹"""
+    folder_path = filedialog.askdirectory()
+    if folder_path:
+        file_folder_entry.delete(0, tk.END)
+        file_folder_entry.insert(0, folder_path)
 
-# 生成注册表文件
-def generate_reg_file(action):
-    exe_path = os.path.abspath("extract_images_cmd.exe").replace("\\", "\\\\")
-    reg_content = ""
 
-    if action == 'add':
-        reg_content = f"""Windows Registry Editor Version 5.00
-
-[HKEY_CLASSES_ROOT\\SystemFileAssociations\\.pptx\\shell\\ExtractImages]
-@="提取PPT图片"
-"Icon"="C:\\\Windows\\\System32\\\shell32.dll,46"
-
-[HKEY_CLASSES_ROOT\\SystemFileAssociations\\.pptx\\shell\\ExtractImages\\command]
-@="\\\"{exe_path}\\\" \\"%1\\\""
-"""
-    elif action == 'delete':
-        reg_content = """Windows Registry Editor Version 5.00
-
-[-HKEY_CLASSES_ROOT\\SystemFileAssociations\\.pptx\\shell\\ExtractImages]
-"""
-
-    # 将 .reg 文件保存在 %temp% 目录
-    reg_file_path = os.path.join(tempfile.gettempdir(), 'context_menu.reg')
-    with open(reg_file_path, 'w') as f:
-        f.write(reg_content)
-    
-    return reg_file_path
-
-# 添加右键菜单
-def add_to_context_menu():
-    reg_file_path = generate_reg_file('add')
-    os.startfile(reg_file_path)  # 打开注册表文件以供用户双击导入
-
-# 删除右键菜单
-def remove_from_context_menu():
-    reg_file_path = generate_reg_file('delete')
-    os.startfile(reg_file_path)  # 打开注册表文件以供用户双击导入
-
-# 切换右键菜单状态
-def toggle_context_menu():
-    if context_menu_var.get():
-        add_to_context_menu()
-    else:
-        remove_from_context_menu()
-
-# 选择PPT文件
-def select_ppt_file():
-    ppt_file_path = filedialog.askopenfilename(filetypes=[("PPT files", "*.pptx")])
-    if ppt_file_path:
-        ppt_file_path = os.path.normpath(ppt_file_path)  # 标准化路径
-        ppt_entry.delete(0, tk.END)
-        ppt_entry.insert(0, ppt_file_path)
-        default_output_dir.set(os.path.join(os.path.dirname(ppt_file_path), os.path.splitext(os.path.basename(ppt_file_path))[0]))
-
-# 选择保存路径
 def select_output_dir():
-    ppt_file_path = ppt_entry.get()
+    """选择导出目录"""
     output_dir = filedialog.askdirectory()
-
     if output_dir:
-        output_dir = os.path.normpath(output_dir)  # 标准化路径
         output_dir_entry.delete(0, tk.END)
-        ppt_name = os.path.splitext(os.path.basename(ppt_file_path))[0]
-        output_dir_entry.insert(0, os.path.join(output_dir, ppt_name))
+        output_dir_entry.insert(0, output_dir)
 
-# 处理拖放
-def drop(event):
-    ppt_file_path = event.data.strip('{}')  # 去掉花括号
-    ppt_file_path = os.path.normpath(ppt_file_path)  # 标准化路径
-    ppt_entry.delete(0, tk.END)
-    ppt_entry.insert(0, ppt_file_path)
-    default_output_dir.set(os.path.join(os.path.dirname(ppt_file_path), os.path.splitext(os.path.basename(ppt_file_path))[0]))
 
-# 提取图片
-def extract_images():
-    ppt_file_path = os.path.normpath(ppt_entry.get())  # 标准化路径
-    output_dir = os.path.normpath(output_dir_entry.get())  # 标准化路径
+def get_supported_files(folder, selected_types):
+    """返回文件夹中符合条件的文件"""
+    files = []
+    for root, _, fs in os.walk(folder):
+        for f in fs:
+            file_ext = os.path.splitext(f)[1].lower()
+            if file_ext in selected_types:
+                files.append(os.path.join(root, f))
+    return files
 
-    if not ppt_file_path or not output_dir:
-        messagebox.showerror("错误", "请指定PPT文件和保存路径！")
-        return
 
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-
-    presentation = Presentation(ppt_file_path)
+def extract_images_from_ppt(ppt_path, output_dir):
+    """提取PPT图片"""
+    presentation = Presentation(ppt_path)
     image_count = 0
-
     for slide_index, slide in enumerate(presentation.slides):
-        for shape_index, shape in enumerate(slide.shapes):
+        for shape in slide.shapes:
             if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
                 image = shape.image
                 image_bytes = image.blob
                 image_format = image.ext
-
                 image_count += 1
                 image_filename = f"slide_{slide_index+1}_image_{image_count}.{image_format}"
-                image_path = os.path.normpath(os.path.join(output_dir, image_filename))  # 标准化路径
-
+                image_path = os.path.join(output_dir, image_filename)
                 with open(image_path, "wb") as f:
                     f.write(image_bytes)
+    return image_count
 
-    # 提示是否打开保存目录
-    if messagebox.askyesno("提取完成", f"共提取 {image_count} 张图片！是否打开保存目录？"):
-        os.startfile(output_dir)
-        
-# 退出时删除临时的 .reg 文件
-def on_exit():
-    reg_file_path = os.path.join(tempfile.gettempdir(), 'context_menu.reg')
-    if os.path.exists(reg_file_path):
-        os.remove(reg_file_path)
-    root.destroy()
 
-# 创建主窗口
+def extract_images_from_word(word_path, output_dir):
+    """提取Word图片"""
+    count = 0
+    with zipfile.ZipFile(word_path) as docx_zip:
+        for name in docx_zip.namelist():
+            if name.startswith("word/media/"):
+                img_data = docx_zip.read(name)
+                img_filename = os.path.join(output_dir, os.path.basename(name))
+                with open(img_filename, "wb") as f:
+                    f.write(img_data)
+                count += 1
+    return count
+
+
+def extract_images_from_excel(excel_path, output_dir):
+    """提取Excel图片"""
+    count = 0
+    with zipfile.ZipFile(excel_path) as xlsx_zip:
+        for name in xlsx_zip.namelist():
+            if name.startswith("xl/media/"):
+                img_data = xlsx_zip.read(name)
+                img_filename = os.path.join(output_dir, os.path.basename(name))
+                with open(img_filename, "wb") as f:
+                    f.write(img_data)
+                count += 1
+    return count
+
+
+def extract_images_from_pdf(pdf_path, output_dir):
+    """提取PDF图片"""
+    reader = PdfReader(pdf_path)
+    image_count = 0
+    for page_index, page in enumerate(reader.pages):
+        if '/XObject' in page['/Resources']:
+            xObject = page['/Resources']['/XObject'].get_object()
+            for obj in xObject:
+                if xObject[obj]['/Subtype'] == '/Image':
+                    image_data = xObject[obj].get_data()
+                    
+                    # 获取图片格式
+                    if '/Filter' in xObject[obj]:
+                        filter_name = xObject[obj]['/Filter']
+                        if filter_name == '/DCTDecode':
+                            image_format = 'jpg'
+                        elif filter_name == '/JPXDecode':
+                            image_format = 'jp2'
+                        elif filter_name == '/FlateDecode':
+                            image_format = 'png'
+                        else:
+                            image_format = 'jpg'  # 默认二进制格式
+                    else:
+                        image_format = 'bin'
+
+                    image_count += 1
+                    image_filename = f"page_{page_index+1}_image_{image_count}.{image_format}"
+                    image_path = os.path.join(output_dir, image_filename)
+                    with open(image_path, "wb") as f:
+                        f.write(image_data)
+    return image_count
+
+
+def process_files(file_paths, output_root):
+    """批量处理文件"""
+    results = []
+    for file_path in file_paths:
+        ext = os.path.splitext(file_path)[1].lower()
+        file_name = os.path.splitext(os.path.basename(file_path))[0]
+        output_dir = os.path.join(output_root, f"图片-{file_name}")
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        if ext == '.pptx':
+            count = extract_images_from_ppt(file_path, output_dir)
+            results.append((file_path, count))
+        elif ext == '.docx':
+            count = extract_images_from_word(file_path, output_dir)
+            results.append((file_path, count))
+        elif ext == '.xlsx':
+            count = extract_images_from_excel(file_path, output_dir)
+            results.append((file_path, count))
+        elif ext == '.pdf':
+            count = extract_images_from_pdf(file_path, output_dir)
+            results.append((file_path, count))
+    return results
+
+
+def extract_images():
+    """提取图片主逻辑"""
+    output_root = output_dir_entry.get().strip() or os.getcwd()
+
+    file_or_folder = file_folder_entry.get().strip()
+
+    # 根据复选框状态确定文件类型
+    selected_types = []
+    if word_var.get():
+        selected_types.append('.docx')
+    if excel_var.get():
+        selected_types.append('.xlsx')
+    if ppt_var.get():
+        selected_types.append('.pptx')
+    if pdf_var.get():
+        selected_types.append('.pdf')
+
+    file_paths = []
+    if os.path.isfile(file_or_folder):
+        if os.path.splitext(file_or_folder)[1].lower() in selected_types:
+            file_paths = [os.path.normpath(file_or_folder)]
+    elif os.path.isdir(file_or_folder):
+        file_paths = get_supported_files(os.path.normpath(file_or_folder), selected_types)
+        if not file_paths:
+            messagebox.showerror("错误", "文件夹中没有可处理的文件！")
+            return
+    else:
+        messagebox.showerror("错误", "请选择有效的文件或文件夹！")
+        return
+
+    results = process_files(file_paths, output_root)
+    total = sum([c for _, c in results])
+    msg = "\n".join([f"{os.path.basename(fp)}: {c} 张图片" for fp, c in results])
+    if messagebox.askyesno("提取完成", f"共处理 {len(results)} 个文件，提取 {total} 张图片。\n\n详细:\n{msg}\n\n是否打开保存目录？"):
+        os.startfile(output_root)
+
+
+# 主窗口
 root = TkinterDnD.Tk()
-root.title("PPT图片提取工具")
-root.protocol("WM_DELETE_WINDOW", on_exit)
-
-# 整个窗口响应拖放文件
+root.title("Office和PDF图片批量提取工具")
 root.drop_target_register(DND_FILES)
-root.dnd_bind('<<Drop>>', drop)
+# 设置窗口图标
+root.iconbitmap('icon.ico')
 
-# PPT文件路径输入框和选择按钮
-ppt_label = tk.Label(root, text="选择PPT文件:")
-ppt_label.grid(row=0, column=0, padx=10, pady=5, sticky="e")
-ppt_entry = tk.Entry(root, width=50)
-ppt_entry.grid(row=0, column=1, padx=10, pady=5)
-ppt_button = tk.Button(root, text="浏览", command=select_ppt_file)
-ppt_button.grid(row=0, column=2, padx=10, pady=5)
+# 文件或文件夹选择
+file_folder_label = tk.Label(root, text="选择文件或文件夹:")
+file_folder_label.grid(row=0, column=0, padx=10, pady=5, sticky="e")
+file_folder_entry = tk.Entry(root, width=50)
+file_folder_entry.grid(row=0, column=1, padx=10, pady=5)
+file_button = tk.Button(root, text="选择文件", command=select_file)
+file_button.grid(row=0, column=2, padx=5, pady=5)
+folder_button = tk.Button(root, text="选择文件夹", command=select_folder)
+folder_button.grid(row=0, column=3, padx=5, pady=5)
 
-# 保存路径输入框和选择按钮
-output_dir_label = tk.Label(root, text="选择保存路径:")
-output_dir_label.grid(row=1, column=0, padx=10, pady=5, sticky="e")
-default_output_dir = tk.StringVar()
-output_dir_entry = tk.Entry(root, width=50, textvariable=default_output_dir)
-output_dir_entry.grid(row=1, column=1, padx=10, pady=5)
+# 文件类型复选框
+file_type_label = tk.Label(root, text="筛选文件类型:")
+file_type_label.grid(row=1, column=0, padx=10, pady=5, sticky="ne")
+word_var = tk.BooleanVar(value=True)
+excel_var = tk.BooleanVar(value=True)
+ppt_var = tk.BooleanVar(value=True)
+pdf_var = tk.BooleanVar(value=True)
+word_checkbox = tk.Checkbutton(root, text="Word", variable=word_var)
+word_checkbox.grid(row=1, column=1, padx=5, pady=2, sticky="w")
+excel_checkbox = tk.Checkbutton(root, text="Excel", variable=excel_var)
+excel_checkbox.grid(row=2, column=1, padx=5, pady=2, sticky="w")
+ppt_checkbox = tk.Checkbutton(root, text="PPT", variable=ppt_var)
+ppt_checkbox.grid(row=3, column=1, padx=5, pady=2, sticky="w")
+pdf_checkbox = tk.Checkbutton(root, text="PDF", variable=pdf_var)
+pdf_checkbox.grid(row=4, column=1, padx=5, pady=2, sticky="w")
+
+# 输出路径
+output_dir_label = tk.Label(root, text="导出路径:")
+output_dir_label.grid(row=5, column=0, padx=10, pady=5, sticky="e")
+output_dir_entry = tk.Entry(root, width=50)
+output_dir_entry.insert(0, os.getcwd())
+output_dir_entry.grid(row=5, column=1, padx=10, pady=5)
 output_dir_button = tk.Button(root, text="浏览", command=select_output_dir)
-output_dir_button.grid(row=1, column=2, padx=10, pady=5)
+output_dir_button.grid(row=5, column=2, padx=10, pady=5)
 
-# 提取图片按钮
-extract_button = tk.Button(root, text="提取图片", command=extract_images)
-extract_button.grid(row=2, column=1, padx=10, pady=20)
+# 提取按钮
+extract_button = tk.Button(root, text="批量提取图片", command=extract_images)
+extract_button.grid(row=6, column=1, padx=10, pady=20)
 
-# 右键菜单选项
-context_menu_var = tk.IntVar()
-context_menu_checkbox = tk.Checkbutton(root, text="添加到右键菜单", variable=context_menu_var, command=toggle_context_menu)
-context_menu_checkbox.grid(row=3, column=1, padx=10, pady=5)
-
-# 启动时检查并设置右键菜单状态
-if check_context_menu_exists():
-    context_menu_var.set(1)
-
-# 运行主循环
 root.mainloop()
